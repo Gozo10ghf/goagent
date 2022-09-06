@@ -134,8 +134,9 @@ def should_visible():
     ConfigParser.RawConfigParser.OPTCRE = re.compile(r'(?P<option>[^=\s][^=]*)\s*(?P<vi>[=])\s*(?P<value>.*)$')
     config = ConfigParser.ConfigParser()
     config.read(['proxy.ini', 'proxy.user.ini'])
-    visible = config.has_option('listen', 'visible') and config.getint('listen', 'visible')
-    return visible
+    return config.has_option('listen', 'visible') and config.getint(
+        'listen', 'visible'
+    )
 
 #gtk.main_quit = lambda: None
 #appindicator = None
@@ -155,7 +156,7 @@ class GoAgentGTK:
         self.terminal = terminal
 
         for cmd in ('python2.7', 'python27', 'python2'):
-            if os.system('which %s' % cmd) == 0:
+            if os.system(f'which {cmd}') == 0:
                 self.command[1] = cmd
                 break
 
@@ -223,11 +224,9 @@ class GoAgentGTK:
     def check_child_exists(self):
         if self.childpid <= 0:
             return False
-        cmd = 'ps -p %s' % self.childpid
+        cmd = f'ps -p {self.childpid}'
         lines = os.popen(cmd).read().strip().splitlines()
-        if len(lines) < 2:
-            return False
-        return True
+        return len(lines) >= 2
 
     def on_child_exited(self, term):
         if self.terminal.get_child_exit_status() == 0:
@@ -246,12 +245,12 @@ class GoAgentGTK:
     def on_stop(self, widget, data=None):
         if self.childexited:
             self.terminal.disconnect(self.childexited)
-        os.system('kill -9 %s' % self.childpid)
+        os.system(f'kill -9 {self.childpid}')
 
     def on_reload(self, widget, data=None):
         if self.childexited:
             self.terminal.disconnect(self.childexited)
-        os.system('kill -9 %s' % self.childpid)
+        os.system(f'kill -9 {self.childpid}')
         self.on_show(widget, data)
         self.childpid = self.terminal.fork_command(self.command[0], self.command, os.getcwd())
         self.childexited = self.terminal.connect('child-exited', lambda term: gtk.main_quit())
