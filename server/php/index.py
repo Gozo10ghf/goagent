@@ -87,7 +87,12 @@ def decode_request(data):
     method = headers.pop('G-Method')
     url = headers.pop('G-Url')
     kwargs = {}
-    any(kwargs.__setitem__(x[2:].lower(), headers.pop(x)) for x in headers.keys() if x.startswith('G-'))
+    any(
+        kwargs.__setitem__(x[2:].lower(), headers.pop(x))
+        for x in headers
+        if x.startswith('G-')
+    )
+
     if headers.get('Content-Encoding', '') == 'deflate':
         body = zlib.decompress(body, -zlib.MAX_WBITS)
         headers['Content-Length'] = str(len(body))
@@ -109,13 +114,25 @@ def application(environ, start_response):
 
     if __password__ != kwargs.get('password'):
         start_response('403 Forbidden', [('Content-Type', 'text/html')])
-        yield message_html('403 Wrong Password', 'Wrong Password(%s)' % kwargs.get('password'), detail='please edit proxy.ini')
+        yield message_html(
+            '403 Wrong Password',
+            f"Wrong Password({kwargs.get('password')})",
+            detail='please edit proxy.ini',
+        )
+
         raise StopIteration
 
     if __hostsdeny__ and netloc.endswith(__hostsdeny__):
         start_response('200 OK', [('Content-Type', __content_type__)])
         yield cipher.encrypt('HTTP/1.1 403 Forbidden\r\nContent-type: text/html\r\n\r\n')
-        yield cipher.encrypt(message_html('403 Forbidden Host', 'Hosts Deny(%s)' % netloc, detail='url=%r' % url))
+        yield cipher.encrypt(
+            message_html(
+                '403 Forbidden Host',
+                f'Hosts Deny({netloc})',
+                detail='url=%r' % url,
+            )
+        )
+
         raise StopIteration
 
     timeout = int(kwargs.get('timeout') or __timeout__)
@@ -137,7 +154,13 @@ def application(environ, start_response):
                     except Queue.Empty:
                         connection = ConnectionType(netloc, timeout=timeout)
                         break
-                connection.request(method, '%s?%s' % (path, query) if query else path, body=body, headers=headers)
+                connection.request(
+                    method,
+                    f'{path}?{query}' if query else path,
+                    body=body,
+                    headers=headers,
+                )
+
                 response = connection.getresponse(buffering=True)
                 break
             except Exception as e:
@@ -170,7 +193,14 @@ def application(environ, start_response):
         if not header_sent:
             start_response('200 OK', [('Content-Type', __content_type__)])
         yield cipher.encrypt('HTTP/1.1 500 Internal Server Error\r\nContent-type: text/html\r\n\r\n')
-        yield cipher.encrypt(message_html('500 Internal Server Error', 'urlfetch %r: %r' % (url, e), '<pre>%s</pre>' % traceback.format_exc()))
+        yield cipher.encrypt(
+            message_html(
+                '500 Internal Server Error',
+                'urlfetch %r: %r' % (url, e),
+                f'<pre>{traceback.format_exc()}</pre>',
+            )
+        )
+
         raise StopIteration
 
 try:

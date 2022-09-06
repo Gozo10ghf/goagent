@@ -99,9 +99,17 @@ def install_sharp_osx():
 
 
 def addto_startup_windows():
-    if 1 == ctypes.windll.user32.MessageBoxW(None, u'是否将goagent.exe加入到启动项？', u'GoAgent 对话框', 1):
-        if 1 == ctypes.windll.user32.MessageBoxW(None, u'是否显示托盘区图标？', u'GoAgent 对话框', 1):
-            pass
+    if (
+        ctypes.windll.user32.MessageBoxW(
+            None, u'是否将goagent.exe加入到启动项？', u'GoAgent 对话框', 1
+        )
+        == 1
+        and ctypes.windll.user32.MessageBoxW(
+            None, u'是否显示托盘区图标？', u'GoAgent 对话框', 1
+        )
+        == 1
+    ):
+        pass
 
 
 def addto_startup_unknown():

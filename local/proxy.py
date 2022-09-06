@@ -44,7 +44,7 @@ import os
 import glob
 
 sys.dont_write_bytecode = True
-sys.path += glob.glob('%s/*.egg' % os.path.dirname(os.path.abspath(__file__)))
+sys.path += glob.glob(f'{os.path.dirname(os.path.abspath(__file__))}/*.egg')
 
 try:
     import gevent
@@ -101,7 +101,11 @@ except ImportError:
 
 
 HAS_PYPY = hasattr(sys, 'pypy_version_info')
-NetWorkIOError = (socket.error, ssl.SSLError, OSError) if not OpenSSL else (socket.error, ssl.SSLError, OpenSSL.SSL.Error, OSError)
+NetWorkIOError = (
+    (socket.error, ssl.SSLError, OpenSSL.SSL.Error, OSError)
+    if OpenSSL
+    else (socket.error, ssl.SSLError, OSError)
+)
 
 
 class Logging(type(sys)):
@@ -236,8 +240,8 @@ class CertUtil(object):
         subj.stateOrProvinceName = 'Internet'
         subj.localityName = 'Cernet'
         subj.organizationName = CertUtil.ca_vendor
-        subj.organizationalUnitName = '%s Root' % CertUtil.ca_vendor
-        subj.commonName = '%s CA' % CertUtil.ca_vendor
+        subj.organizationalUnitName = f'{CertUtil.ca_vendor} Root'
+        subj.commonName = f'{CertUtil.ca_vendor} CA'
         ca.gmtime_adj_notBefore(0)
         ca.gmtime_adj_notAfter(24 * 60 * 60 * 3652)
         ca.set_issuer(ca.get_subject())
@@ -273,11 +277,11 @@ class CertUtil(object):
         subj.countryName = 'CN'
         subj.stateOrProvinceName = 'Internet'
         subj.localityName = 'Cernet'
-        subj.organizationalUnitName = '%s Branch' % CertUtil.ca_vendor
+        subj.organizationalUnitName = f'{CertUtil.ca_vendor} Branch'
         if commonname[0] == '.':
-            subj.commonName = '*' + commonname
-            subj.organizationName = '*' + commonname
-            sans = ['*'+commonname] + [x for x in sans if x != '*'+commonname]
+            subj.commonName = f'*{commonname}'
+            subj.organizationName = f'*{commonname}'
+            sans = [f'*{commonname}'] + [x for x in sans if x != f'*{commonname}']
         else:
             subj.commonName = commonname
             subj.organizationName = commonname
@@ -298,13 +302,13 @@ class CertUtil(object):
         cert.set_subject(req.get_subject())
         cert.set_pubkey(req.get_pubkey())
         if commonname[0] == '.':
-            sans = ['*'+commonname] + [s for s in sans if s != '*'+commonname]
+            sans = [f'*{commonname}'] + [s for s in sans if s != f'*{commonname}']
         else:
             sans = [commonname] + [s for s in sans if s != commonname]
         #cert.add_extensions([OpenSSL.crypto.X509Extension(b'subjectAltName', True, ', '.join('DNS: %s' % x for x in sans))])
         cert.sign(key, 'sha1')
 
-        certfile = os.path.join(CertUtil.ca_certdir, commonname + '.crt')
+        certfile = os.path.join(CertUtil.ca_certdir, f'{commonname}.crt')
         with open(certfile, 'wb') as fp:
             fp.write(OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, cert))
             fp.write(OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_PEM, pkey))
@@ -314,7 +318,7 @@ class CertUtil(object):
     def get_cert(commonname, sans=()):
         if commonname.count('.') >= 2 and [len(x) for x in reversed(commonname.split('.'))] > [2, 4]:
             commonname = '.'+commonname.partition('.')[-1]
-        certfile = os.path.join(CertUtil.ca_certdir, commonname + '.crt')
+        certfile = os.path.join(CertUtil.ca_certdir, f'{commonname}.crt')
         if os.path.exists(certfile):
             return certfile
         elif OpenSSL is None:
@@ -359,11 +363,14 @@ class CertUtil(object):
             import platform
             platform_distname = platform.dist()[0]
             if platform_distname == 'Ubuntu':
-                pemfile = "/etc/ssl/certs/%s.pem" % commonname
-                new_certfile = "/usr/local/share/ca-certificates/%s.crt" % commonname
+                pemfile = f"/etc/ssl/certs/{commonname}.pem"
+                new_certfile = f"/usr/local/share/ca-certificates/{commonname}.crt"
                 if not os.path.exists(pemfile):
                     return os.system('cp "%s" "%s" && update-ca-certificates' % (certfile, new_certfile))
-            elif any(os.path.isfile('%s/certutil' % x) for x in os.environ['PATH'].split(os.pathsep)):
+            elif any(
+                os.path.isfile(f'{x}/certutil')
+                for x in os.environ['PATH'].split(os.pathsep)
+            ):
                 return os.system('certutil -L -d sql:$HOME/.pki/nssdb | grep "%s" || certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "%s" -i "%s"' % (commonname, commonname, certfile))
             else:
                 logging.warning('please install *libnss3-tools* package to import GoAgent root ca')
@@ -380,16 +387,21 @@ class CertUtil(object):
                 sys.exit(-1)
             if os.path.exists(certdir):
                 if os.path.isdir(certdir):
-                    any(os.remove(x) for x in glob.glob(certdir+'/*.crt')+glob.glob(certdir+'/.*.crt'))
+                    any(
+                        os.remove(x)
+                        for x in glob.glob(f'{certdir}/*.crt')
+                        + glob.glob(f'{certdir}/.*.crt')
+                    )
+
                 else:
                     os.remove(certdir)
                     os.mkdir(certdir)
             CertUtil.dump_ca()
-        if glob.glob('%s/*.key' % CertUtil.ca_certdir):
-            for filename in glob.glob('%s/*.key' % CertUtil.ca_certdir):
+        if glob.glob(f'{CertUtil.ca_certdir}/*.key'):
+            for filename in glob.glob(f'{CertUtil.ca_certdir}/*.key'):
                 try:
                     os.remove(filename)
-                    os.remove(os.path.splitext(filename)[0]+'.crt')
+                    os.remove(f'{os.path.splitext(filename)[0]}.crt')
                 except EnvironmentError:
                     pass
         #Check CA imported
@@ -470,8 +482,7 @@ class SSLConnection(object):
 
     def recv(self, bufsiz, flags=0):
         timeout = self._sock.gettimeout()
-        pending = self._connection.pending()
-        if pending:
+        if pending := self._connection.pending():
             return self._connection.recv(min(pending, bufsiz))
         while True:
             try:
@@ -577,7 +588,7 @@ def get_dnsserver_list():
         DNS_CONFIG_DNS_SERVER_LIST = 6
         buf = ctypes.create_string_buffer(2048)
         ctypes.windll.dnsapi.DnsQueryConfig(DNS_CONFIG_DNS_SERVER_LIST, 0, None, None, ctypes.byref(buf), ctypes.byref(ctypes.wintypes.DWORD(len(buf))))
-        ips = struct.unpack('I', buf[0:4])[0]
+        ips = struct.unpack('I', buf[:4])[0]
         out = []
         for i in xrange(ips):
             start = (i+1) * 4
@@ -640,10 +651,7 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def send_response(self, code, message=None):
         if message is None:
-            if code in self.responses:
-                message = self.responses[code][0]
-            else:
-                message = ''
+            message = self.responses[code][0] if code in self.responses else ''
         if self.request_version != 'HTTP/0.9':
             self.wfile.write("%s %d %s\r\n" %
                              (self.protocol_version, code, message))
@@ -678,8 +686,7 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def create_ssl_connection(self, hostname, port, timeout, **kwargs):
         sock = self.create_tcp_connection(hostname, port, timeout, **kwargs)
-        ssl_sock = ssl.wrap_socket(sock)
-        return ssl_sock
+        return ssl.wrap_socket(sock)
 
     def create_http_request(self, method, url, headers, body, timeout, **kwargs):
         scheme, netloc, path, query, _ = urlparse.urlsplit(url)
@@ -691,7 +698,7 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             host, _, port = netloc.rpartition(':')
             port = int(port)
         if query:
-            path += '?' + query
+            path += f'?{query}'
         if 'Host' not in headers:
             headers['Host'] = host
         if body and 'Content-Length' not in headers:
@@ -699,8 +706,7 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         ConnectionType = httplib.HTTPSConnection if scheme == 'https' else httplib.HTTPConnection
         connection = ConnectionType(netloc, timeout=timeout)
         connection.request(method, path, body=body, headers=headers)
-        response = connection.getresponse(buffering=True)
-        return response
+        return connection.getresponse(buffering=True)
 
     def create_http_request_withserver(self, fetchserver, method, url, headers, body, timeout, **kwargs):
         raise NotImplementedError
@@ -790,16 +796,13 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                     break
                 if ins:
                     for sock in ins:
-                        data = sock.recv(bufsize)
-                        if data:
-                            if sock is remote:
-                                local.sendall(data)
-                                timecount = timeout
-                            else:
-                                remote.sendall(data)
-                                timecount = timeout
-                        else:
+                        if not (data := sock.recv(bufsize)):
                             return
+                        if sock is remote:
+                            local.sendall(data)
+                        else:
+                            remote.sendall(data)
+                        timecount = timeout
         except NetWorkIOError as e:
             if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
                 raise
@@ -814,7 +817,7 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         if self.path.lower().startswith(('http://', 'https://', 'ftp://')):
             url = self.path
         else:
-            url = 'http://%s%s' % (self.headers['Host'], self.path)
+            url = f"http://{self.headers['Host']}{self.path}"
         headers = {k.title(): v for k, v in self.headers.items()}
         body = self.rfile.read(int(headers.get('Content-Length', 0)))
         response = self.create_http_request(method, url, headers, body, timeout=self.connect_timeout, **kwargs)
@@ -848,7 +851,7 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         """urlfetch from fetchserver"""
         method = self.command
         if self.path[0] == '/':
-            url = '%s://%s%s' % (self.scheme, self.headers['Host'], self.path)
+            url = f"{self.scheme}://{self.headers['Host']}{self.path}"
         elif self.path.lower().startswith(('http://', 'https://', 'ftp://')):
             url = self.path
         else:
@@ -864,7 +867,10 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 response = self.create_http_request_withserver(fetchserver, method, url, headers, body, timeout=self.max_timeout, **kwargs)
                 # appid over qouta, switch to next appid
                 if response.app_status >= 500:
-                    message = {503: 'Current APPID Over Quota'}.get(response.status) or 'URLFETCH retrun %s' % response.status
+                    message = {503: 'Current APPID Over Quota'}.get(
+                        response.status
+                    ) or f'URLFETCH retrun {response.status}'
+
                     if i == max_retry - 1:
                         content = message_html('502 URLFetch failed', 'Local URLFetch %r failed' % url, message)
                         return self.MOCK(response.status, {'Content-Type': 'text/html'}, content)
@@ -931,20 +937,18 @@ class SimpleProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             netloc = self.path
         elif self.path[0] == '/':
             netloc = self.headers.get('Host', 'localhost')
-            self.path = '%s://%s%s' % (self.scheme, netloc, self.path)
+            self.path = f'{self.scheme}://{netloc}{self.path}'
         else:
             netloc = urlparse.urlsplit(self.path).netloc
-        m = re.match(r'^(.+):(\d+)$', netloc)
-        if m:
-            self.host = m.group(1).strip('[]')
-            self.port = int(m.group(2))
+        if m := re.match(r'^(.+):(\d+)$', netloc):
+            self.host = m[1].strip('[]')
+            self.port = int(m[2])
         else:
             self.host = netloc
             self.port = 443 if self.scheme == 'http' else 80
         self.body = self.rfile.read(int(self.headers['Content-Length'])) if 'Content-Length' in self.headers else ''
         for handler_filter in self.handler_filters:
-            action = handler_filter.filter(self)
-            if action:
+            if action := handler_filter.filter(self):
                 return action.pop(0)(*action)
 
 

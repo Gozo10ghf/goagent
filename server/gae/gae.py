@@ -275,13 +275,18 @@ def mirror(environ, start_response):
         yield '--------------------------------\n'
         raise StopIteration
 
-    headers = dict((k[5:].title().replace('_', '-'), v) for k, v in environ.items() if k.startswith('HTTP_'))
+    headers = {
+        k[5:].title().replace('_', '-'): v
+        for k, v in environ.items()
+        if k.startswith('HTTP_')
+    }
+
     headers['Host'] = target_host
     headers.pop('Accept-Encoding', '')
     if 'Cookie' in headers:
         headers['Cookie'] = headers['Cookie'].replace(original_host, target_host)
-    path = '%s?%s' % (path_info, query_string) if query_string else path_info
-    url = '%s://%s/%s' % (scheme, target_host, path)
+    path = f'{path_info}?{query_string}' if query_string else path_info
+    url = f'{scheme}://{target_host}/{path}'
     payload = environ['wsgi.input'].read() if headers.get('Content-Length') else ''
 
     fetchmethod = getattr(urlfetch, method, None)
@@ -318,7 +323,7 @@ def mirror(environ, start_response):
             else:
                 headers.pop('Range', '')
                 headers.pop('range', '')
-                start = int(m.group(1))
+                start = int(m[1])
                 headers['Range'] = 'bytes=%s-%d' % (start, start+URLFETCH_MAXSIZE)
             deadline = URLFETCH_TIMEOUT * 2
         except urlfetch.SSLCertificateError as e:
@@ -330,17 +335,27 @@ def mirror(environ, start_response):
                 deadline = URLFETCH_TIMEOUT * 2
     else:
         start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
-        yield 'Internal Server Error: %s' % errors
+        yield f'Internal Server Error: {errors}'
         raise StopIteration
 
     #logging.debug('url=%r response.status_code=%r response.headers=%r response.content[:1024]=%r', url, response.status_code, dict(response.headers), response.content[:1024])
     response_status = response.status_code
-    response_headers = dict((k.title(), v) for k, v in response.headers.items() if not k.startswith('x-google-'))
+    response_headers = {
+        k.title(): v
+        for k, v in response.headers.items()
+        if not k.startswith('x-google-')
+    }
+
     response_content = response.content
     content_encoding = response_headers.get('Content-Encoding', '')
     content_type = response_headers.get('Content-Type', '')
     if 300 <= response_status < 400 and 'Location' in response_headers and original_host:
-        response_headers['Location'] = re.sub(r'(?<=://)%s(?=/)' % target_host, original_host, response_headers['Location'])
+        response_headers['Location'] = re.sub(
+            f'(?<=://){target_host}(?=/)',
+            original_host,
+            response_headers['Location'],
+        )
+
     if 'Set-Cookie' in response_headers:
         response_headers['Set-Cookie'] = response_headers['Set-Cookie'].replace(target_host, original_host)
     if content_encoding in ('gzip', 'deflate'):
@@ -352,7 +367,14 @@ def mirror(environ, start_response):
     if 'Content-Encoding' not in response_headers and content_type.startswith(('text/', 'application/json', 'application/javascript', 'application/x-javascript')):
         response_content = response_content.replace(target_host, original_host)
         if content_type.startswith('text/html'):
-            response_content = re.sub(r'(?<=[:\'"]//)([a-z0-9\-\_\.]+)', lambda m: '%s.%s' % (m.group(1), server_name) if not m.group(1).endswith(server_name) else m.group(1), response_content)
+            response_content = re.sub(
+                r'(?<=[:\'"]//)([a-z0-9\-\_\.]+)',
+                lambda m: m.group(1)
+                if m.group(1).endswith(server_name)
+                else f'{m.group(1)}.{server_name}',
+                response_content,
+            )
+
             pos = response_content.find('</body>')
             if pos > 0 and __mirror_userjs__:
                 script = '\n<script>var _gh_userjs = document.createElement("script");_gh_userjs.setAttribute("src", "%s"); document.getElementsByTagName("head")[0].appendChild(_gh_userjs);</script>\n' % __mirror_userjs__
@@ -374,12 +396,19 @@ class LegacyHandler(object):
 
     def send_response(self, status, headers, content, content_type=__content_type__):
         headers['Content-Length'] = str(len(content))
-        strheaders = '&'.join('%s=%s' % (k, v.encode('hex')) for k, v in headers.iteritems() if v)
+        strheaders = '&'.join(
+            f"{k}={v.encode('hex')}" for k, v in headers.iteritems() if v
+        )
+
         #logging.debug('response status=%s, headers=%s, content length=%d', status, headers, len(content))
         if headers.get('content-type', '').startswith(('text/', 'application/json', 'application/javascript')):
-            data = '1' + zlib.compress('%s%s%s' % (struct.pack('>3I', status, len(strheaders), len(content)), strheaders, content))
+            data = '1' + zlib.compress(
+                f"{struct.pack('>3I', status, len(strheaders), len(content))}{strheaders}{content}"
+            )
+
         else:
-            data = '0%s%s%s' % (struct.pack('>3I', status, len(strheaders), len(content)), strheaders, content)
+            data = f"0{struct.pack('>3I', status, len(strheaders), len(content))}{strheaders}{content}"
+
         self.start_response('200 OK', [('Content-type', content_type)])
         return [data]
 
@@ -391,12 +420,16 @@ class LegacyHandler(object):
     def process_request(self):
         environ = self.environ
         if environ['REQUEST_METHOD'] == 'GET':
-            redirect_url = 'https://%s/2' % environ['HTTP_HOST']
+            redirect_url = f"https://{environ['HTTP_HOST']}/2"
             self.start_response('302 Redirect', [('Location', redirect_url)])
             return [redirect_url]
 
         data = zlib.decompress(environ['wsgi.input'].read(int(environ['CONTENT_LENGTH'])))
-        request = dict((k, v.decode('hex')) for k, _, v in (x.partition('=') for x in data.split('&')))
+        request = {
+            k: v.decode('hex')
+            for k, _, v in (x.partition('=') for x in data.split('&'))
+        }
+
 
         method = request['method']
         url = request['url']
@@ -414,7 +447,13 @@ class LegacyHandler(object):
 
         deadline = URLFETCH_TIMEOUT
 
-        headers = dict((k.title(), v.lstrip()) for k, _, v in (line.partition(':') for line in request['headers'].splitlines()))
+        headers = {
+            k.title(): v.lstrip()
+            for k, _, v in (
+                line.partition(':') for line in request['headers'].splitlines()
+            )
+        }
+
         headers['Connection'] = 'close'
 
         errors = []
@@ -425,15 +464,15 @@ class LegacyHandler(object):
             except apiproxy_errors.OverQuotaError as e:
                 time.sleep(4)
             except urlfetch.DeadlineExceededError as e:
-                errors.append('DeadlineExceededError %s(deadline=%s)' % (e, deadline))
+                errors.append(f'DeadlineExceededError {e}(deadline={deadline})')
                 logging.error('DeadlineExceededError(deadline=%s, url=%r)', deadline, url)
                 time.sleep(1)
             except urlfetch.DownloadError as e:
-                errors.append('DownloadError %s(deadline=%s)' % (e, deadline))
+                errors.append(f'DownloadError {e}(deadline={deadline})')
                 logging.error('DownloadError(deadline=%s, url=%r)', deadline, url)
                 time.sleep(1)
             except urlfetch.InvalidURLError as e:
-                return self.send_notify(method, url, 501, 'Invalid URL: %s' % e)
+                return self.send_notify(method, url, 501, f'Invalid URL: {e}')
             except urlfetch.ResponseTooLargeError as e:
                 response = e.response
                 logging.error('ResponseTooLargeError(deadline=%s, url=%r) response(%r)', deadline, url, response)
@@ -443,13 +482,16 @@ class LegacyHandler(object):
                 else:
                     headers.pop('Range', '')
                     headers.pop('range', '')
-                    start = int(m.group(1))
+                    start = int(m[1])
                     headers['Range'] = 'bytes=%s-%d' % (start, start+URLFETCH_MAXSIZE)
                 deadline = URLFETCH_TIMEOUT * 2
             except Exception as e:
-                errors.append('Exception %s(deadline=%s)' % (e, deadline))
+                errors.append(f'Exception {e}(deadline={deadline})')
         else:
-            return self.send_notify(method, url, 500, 'Python Server: Urlfetch error: %s' % errors)
+            return self.send_notify(
+                method, url, 500, f'Python Server: Urlfetch error: {errors}'
+            )
+
 
         headers = response.headers
         if 'content-length' not in headers:

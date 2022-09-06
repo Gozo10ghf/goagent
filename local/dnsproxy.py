@@ -37,7 +37,7 @@ def get_dnsserver_list():
         DNS_CONFIG_DNS_SERVER_LIST = 6
         buf = ctypes.create_string_buffer(2048)
         ctypes.windll.dnsapi.DnsQueryConfig(DNS_CONFIG_DNS_SERVER_LIST, 0, None, None, ctypes.byref(buf), ctypes.byref(ctypes.wintypes.DWORD(len(buf))))
-        ips = struct.unpack('I', buf[0:4])[0]
+        ips = struct.unpack('I', buf[:4])[0]
         out = []
         for i in xrange(ips):
             start = (i+1) * 4
@@ -125,11 +125,20 @@ class DNSServer(gevent.server.DatagramServer):
         self.dns_servers = dns_servers
         self.dns_v4_servers = [x for x in self.dns_servers if ':' not in x]
         self.dns_v6_servers = [x for x in self.dns_servers if ':' in x]
-        self.dns_intranet_servers = set([x for x in self.dns_servers if self.is_local_addr(x)])
+        self.dns_intranet_servers = {
+            x for x in self.dns_servers if self.is_local_addr(x)
+        }
+
         self.dns_blacklist = set(dns_blacklist)
         self.dns_timeout = int(dns_timeout)
         self.dns_cache = ExpireCache(max_size=65536)
-        self.dns_trust_servers = set(['8.8.8.8', '8.8.4.4', '2001:4860:4860::8888', '2001:4860:4860::8844'])
+        self.dns_trust_servers = {
+            '8.8.8.8',
+            '8.8.4.4',
+            '2001:4860:4860::8888',
+            '2001:4860:4860::8844',
+        }
+
         if pygeoip:
             for dirname in ('.', '/usr/share/GeoIP/', '/usr/local/share/GeoIP/'):
                 filename = os.path.join(dirname, 'GeoIP.dat')
@@ -159,8 +168,18 @@ class DNSServer(gevent.server.DatagramServer):
             reply = dnslib.DNSRecord(header=dnslib.DNSHeader(id=request.header.id, rcode=3))
             self.sendto(reply.pack(), address)
             return
-        dns_v4_servers = self.dns_v4_servers if not is_local_hostname else [x for x in self.dns_intranet_servers if ':' not in x]
-        dns_v6_servers = self.dns_v6_servers if not is_local_hostname else [x for x in self.dns_intranet_servers if ':' in x]
+        dns_v4_servers = (
+            [x for x in self.dns_intranet_servers if ':' not in x]
+            if is_local_hostname
+            else self.dns_v4_servers
+        )
+
+        dns_v6_servers = (
+            [x for x in self.dns_intranet_servers if ':' in x]
+            if is_local_hostname
+            else self.dns_v6_servers
+        )
+
         if dns_v4_servers:
             sock_v4 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             socks.append(sock_v4)
@@ -179,9 +198,7 @@ class DNSServer(gevent.server.DatagramServer):
                     sock_v6.sendto(data, (dnsserver, 53))
                     need_reply_servers.add(dnsserver)
                 timeout_at = time.time() + self.dns_timeout
-                while time.time() < timeout_at:
-                    if reply_data:
-                        break
+                while time.time() < timeout_at and not reply_data:
                     ins, _, _ = select.select(socks, [], [], 0.1)
                     for sock in ins:
                         reply_data, (reply_server, _) = sock.recvfrom(512)
